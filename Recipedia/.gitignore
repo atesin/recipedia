@@ -1,4 +1,10 @@
 /bin/
+<<<<<<< HEAD
 .*
 LICENSE
 README.md
+=======
+.*
+LICENSE
+README.md
+>>>>>>> branch 'master' of git@github.com:atesin/recipedia.git
