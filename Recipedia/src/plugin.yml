@@ -1,0 +1,20 @@
+name: Recipedia
+main: cl.netgamer.recipedia.Main
+version: 1
+api-version: 1.13
+# url??
+
+commands:
+  recipedia:
+    description: "Search recipes by item name"
+    usage: "more info: /recipedia"
+    aliases: [rr]
+  recipehand:
+    description: "Search recipes for item in main hand"
+    usage: "more info: /recipedia"
+    aliases: [rh]
+  recipetarget:
+    description: "Search recipes for targeted block/entity"
+    usage: "more info: /recipedia"
+    aliases: [rt]
+    

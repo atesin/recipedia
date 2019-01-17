@@ -1,0 +1,29 @@
+todo:
+
+- (placeholder)
+
+Recipedia v1 (dev) - 01-2019
+
+- project name and version updated from RecipeSearch v3 to Recipedia v1
+- total rewrite to add cb 1.13+ support
+- updated commands (dropped /rc command, new commands added)
+- better item browsing session handling
+- new hitbox based collision algorithms to more accurate target finding (block as well as entity)
+- anoying tab complete suggestions disabled since it can't work properly due parameters can be "partial" keywords
+- reworked help pages
+- added Material internal names to dictionary
+
+RecipeSearch v3 (release)
+
+- fixed permissions, now undefined permissions are true so you don't have to install a permissions plugin to use this
+- fixed critical bug: item loss on server stop while viewing recipes
+- updated documentation in config.yml to reflect changes, please (backup and) delete to regenerate the file
+
+RecipeSearch v2
+
+- updated permissions, PLEASE UPDATE
+
+RecipeSearch v1
+
+- initial release, no changes
+- tested with craftbukkit 1.12.1 and java 8, maybe works with earlier versions, if not then contact me

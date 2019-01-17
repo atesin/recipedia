@@ -1,0 +1,169 @@
+# 
+# DOCUMENTATION (please read completely before proceed with config at bottom)
+# 
+# Recipedia is a rewrite and replacement of RecipeSearch, with CB 1.13+ support
+# and other fixes, enhancements and additions.
+# 
+# Recipedia was inspired on many recipes plugins as Craftipedia, RecipesGUI,
+# Essentials ("/recipe" command) and similar, bringing the best of each with
+# some original additional features as: localized item name searches supported
+# by client language files, inverse recipes search (with item as material),
+# recipes for held item, recipes for targeted block or entity, amongst others.
+# 
+# I hate to Alt-Tab to search recipes online while i am playing. I was an avid
+# user of these plugins on my server and suggested many features but was never
+# heard, sadly the new "recipe book" sucks and those plugins are now dead, so
+# i wrote my own and i like to share it with you.
+# 
+# I am not a java expert, i did the best i could, so this plugin could still
+# have some bugs (i warned you so i am not responsible for damages), so if you
+# are sure you found one please report it, ask your doubt or post your
+# suggestion at the project page:
+#
+# - https://dev.bukkit.org/projects/recipedia/
+# 
+# 
+# HOW TO GET LOCALIZED ITEM NAME SEARCH TO WORK
+# 
+# Recipedia supports search items by keywords. In addition to Material names
+# it also supports localized item names by adding compatibility with Minecraft
+# client language files. It is designed this way so any server admin could
+# add his preferred language(s) just by extracting files from client
+# and copy (them) to the plugin folder.
+# 
+# Some advantages of this are: customization, flexibility, stability throught
+# version changes, and the unconcern of no needing a dedicated dev staff to
+# generate language files. I am aware many similar plugins died due this (with
+# the additional consideration that i am a little lazy :D ).
+# 
+# 
+# LANGUAGE FILES INSTALLATION / UPDATING FROM MINECRAFT CLIENT
+# 
+# In this example i will tell you how to install the "Espanol (Espana)" (es_es)
+# language file from Minecraft 1.13 windows client, however you can install
+# many variants of same language to cover the subtle differences beetween them.
+# 
+# Please use the corresponding file version since plugin has no way to guess it,
+# note since minecraft 1.13 the language file format had changed to json:
+# 
+# - Open file "%APPDATA%\.minecraft\assets\indexes\<version>.json" with a text
+#   editor (for example in my case the file is "1.13.json")
+# 
+# - Search for string "minecraft/lang/<lang>.json" ("minecraft/lang/es_es.json"
+#   in my case) (note in previous versions they had ".lang" extension)
+# 
+# - Take note of the hash in the value next (mine is
+#   "ba31825a8666b744facf483538afd7a398408d05")
+# 
+# - Write down the first 2 characters of the hash ("ba" in this case)
+# 
+# - Go to the folder "%APPDATA%\.minecraft\assets\objects\<2 chars>
+#   (replace <2 chars> with mentioned above)
+# 
+# - In that folder, locate the file named before the previously mentioned hash
+#   (i.e. "ba31825a8666b744facf483538afd7a398408d05")
+# 
+# - Copy the file to Recipedia plugin folder,
+#   i.e. "<bukkit folder>/plugins/Recipedia/"
+# 
+# - Rename the copied file to its original supposed name ("es_es.json" in my
+#   case), note the ".json" extension is important for plugin to find it
+# 
+# - Repeat the process with other locales if you want, then restart or reload
+#   the server to apply changes
+# 
+# 
+# SPECIAL CASE: DEFAULT LANGUAGE FILE "en_us.json"
+# 
+# Instead located in "assets" folder, the default language file "English (US)"
+# (en_us) is hardcoded inside the game executable, but i also recommend to
+# extract and install by the way described below for wikis-compilant names
+# and players that like us-english item names:
+# 
+# - Open the file "%APPDATA%\.minecraft\versions\<version>\<version>.jar" with a
+#   compression utility like 7-Zip, PeaZip, WinRar, WinZip or similar
+# 
+# - Inside file, browse to the folder "assets\minecraft\lang\"
+# 
+# - Locate the file "en_us.json", extract it and copy to the plugin folder (in
+#   case of trouble you can also extract the entire .jar file to copy the file)
+# 
+# - Restart or reload the server to apply changes
+# 
+# 
+# PLUGIN PERMISSIONS (default: true, always true for ops)
+# 
+# - recipedia.search     : search items by name, typing keywords
+# - recipedia.hand       : list recipes for item held in main hand
+# - recipedia.target     : list recipes for block or entity targeted with crosshair
+# - recipedia.ingredient : search inverse recipes with item as ingredient
+# - recipedia.recipe     : display recipe in temporary crafting grid or furnace
+
+
+
+# PLUGIN CONFIGURATION (just some translations, for non ascii chars please use unicode escapes):
+
+
+# item tooltip messages
+
+recipesCount: "%s recipes"
+ingredient: Ingredient
+fuel: Fuel
+pageNumber: Page %s
+CraftFurnaceRecipe: Furnace Recipe
+CraftShapedRecipe: Shaped Recipe
+CraftShapelessRecipe: Shapeless Recipe
+
+
+# search items status messages
+
+noRecipesFound: No recipes found for selected item, block or entity
+noItemsFound: The keywords didn't match any item
+tooManyResults: Too many results, please refine your search
+noPermission: Currently you don't have permission to this
+invalidArguments: Invalid or ambiguous arguments, type '/recipedia' for help
+
+
+# help pages, 10 lines with 54 columns max recomended, test before release it
+# lines are yellow until find a colon, which will turn it cyan (aqua)
+# 
+# available variables:
+# %c = current help page number
+# %t = total pages count
+# %n = player name
+# %p = player permissions
+# %l = installed localizations (read the comments at beginning)
+
+helpPages:
+- |
+  Recipedia plugin: search item recipes ingame (no more Alt-Tab)
+  : search recipes for items by name, in hand, or targeted
+  : it shows results in a temp inventory with recipes on top
+  : supports localized item names, inverse recipes, and more
+  Additional help pages: (more info: '/recipedia [number]')
+  . 1 general help: this page
+  . 2 available commands: commands used in this plugin
+  . 3 additional info: UI functions, locales, permissions, etc.
+  (page %c of %t)
+- |
+  /recipedia [search keywords]: (default alias /rr)
+  : search 'result recipes' by localized product names
+  : keywords order is important according installed langs
+  /recipehand [i]: (default alias /rh)
+  : search crafting recipes for item held in main hand
+  : with 'i' flag will take item as ingredient (inverse recipes)
+  /recipetarget [i]: (default alias /rt)
+  : search crafting recipes for object targeted with crosshair
+  : with 'i' flag will search for inverse recipes
+  (page %c of %t)
+- |
+  Operation modes: list results, show recipes
+  Mouse actions:
+  . left click item: browse result pages / show recipes
+  . right click item: list products with item as ingredient
+  . click outside: left click: replay, right click: close
+  Installed langs: %l
+  Permissions for you (%n):
+  : %p
+  Homepage: http://dev.bukkit.org/projects/recipedia
+  (page %c of %t)
