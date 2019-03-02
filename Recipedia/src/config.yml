@@ -1,5 +1,9 @@
 # 
-# DOCUMENTATION (please read completely before proceed with config at bottom)
+# RECIPEDIA PLUGIN DOCUMENTATION
+# please read completely before proceed with config at bottom, for unique time
+# 
+# 
+# PLUGIN DESCRIPTION
 # 
 # Recipedia is a rewrite and replacement of RecipeSearch, with CB 1.13+ support
 # and other fixes, enhancements and additions.
@@ -7,18 +11,21 @@
 # Recipedia was inspired on many recipes plugins as Craftipedia, RecipesGUI,
 # Essentials ("/recipe" command) and similar, bringing the best of each with
 # some original additional features as: localized item name searches supported
-# by client language files, inverse recipes search (with item as material),
+# by client language files, inverse recipes search (with item as ingredient),
 # recipes for held item, recipes for targeted block or entity, amongst others.
+# 
+# 
+# BRIEF
 # 
 # I hate to Alt-Tab to search recipes online while i am playing. I was an avid
 # user of these plugins on my server and suggested many features but was never
-# heard, sadly the new "recipe book" sucks and those plugins are now dead, so
-# i wrote my own and i like to share it with you.
+# heard, sadly the new vanilla "recipe book" sucks and those plugins are now
+# dead, so i wrote my own and now i want to share it with you.
 # 
 # I am not a java expert, i did the best i could, so this plugin could still
-# have some bugs (i warned you so i am not responsible for damages), so if you
-# are sure you found one please report it, ask your doubt or post your
-# suggestion at the project page:
+# have some bugs (backup your server often, i warned you so i am not
+# responsible for damages), so if you are sure you found one please report it,
+# ask your doubt or post your suggestion at the project page:
 #
 # - https://dev.bukkit.org/projects/recipedia/
 # 
@@ -43,7 +50,7 @@
 # language file from Minecraft 1.13 windows client, however you can install
 # many variants of same language to cover the subtle differences beetween them.
 # 
-# Please use the corresponding file version since plugin has no way to guess it,
+# Please use files matching with version since plugin has no way to guess it,
 # note since minecraft 1.13 the language file format had changed to json:
 # 
 # - Open file "%APPDATA%\.minecraft\assets\indexes\<version>.json" with a text
@@ -80,8 +87,8 @@
 # extract and install by the way described below for wikis-compilant names
 # and players that like us-english item names:
 # 
-# - Open the file "%APPDATA%\.minecraft\versions\<version>\<version>.jar" with a
-#   compression utility like 7-Zip, PeaZip, WinRar, WinZip or similar
+# - Open the file "%APPDATA%\.minecraft\versions\<version>\<version>.jar" with
+#    acompression utility like 7-Zip, PeaZip, WinRar, WinZip or similar
 # 
 # - Inside file, browse to the folder "assets\minecraft\lang\"
 # 
@@ -95,16 +102,16 @@
 # 
 # - recipedia.search     : search items by name, typing keywords
 # - recipedia.hand       : list recipes for item held in main hand
-# - recipedia.target     : list recipes for block or entity targeted with crosshair
+# - recipedia.target     : list recipes for block or entity behind crosshair
 # - recipedia.ingredient : search inverse recipes with item as ingredient
-# - recipedia.recipe     : display recipe in temporary crafting grid or furnace
+# - recipedia.recipe     : display recipes in temp crafting grid
 
 
+# PLUGIN CONFIGURATION
+# just some translations, for non ascii chars please use unicode escapes
 
-# PLUGIN CONFIGURATION (just some translations, for non ascii chars please use unicode escapes):
 
-
-# item tooltip messages
+# item tooltip messages, use '%s' to print referenced string variable
 
 recipesCount: "%s recipes"
 ingredient: Ingredient
@@ -115,55 +122,26 @@ CraftShapedRecipe: Shaped Recipe
 CraftShapelessRecipe: Shapeless Recipe
 
 
-# search items status messages
+# search items status messages, use '%s' to print related variable
 
 noRecipesFound: No recipes found for selected item, block or entity
-noItemsFound: The keywords didn't match any item
+noItemsFound: The keywords didn't matched any item
 tooManyResults: Too many results, please refine your search
-noPermission: Currently you don't have permission to this
-invalidArguments: Invalid or ambiguous arguments, type '/recipedia' for help
+noPermission: You don't have the permission '%s'
 
 
 # help pages, 10 lines with 54 columns max recomended, test before release it
-# lines are yellow until find a colon, which will turn it cyan (aqua)
-# 
-# available variables:
-# %c = current help page number
-# %t = total pages count
-# %n = player name
-# %p = player permissions
-# %l = installed localizations (read the comments at beginning)
+# lines are yellow, until find a colon which turn it cyan
+# use %1$s and %2$s to print installed locaizations and player permissions
 
-helpPages:
-- |
-  Recipedia plugin: search item recipes ingame (no more Alt-Tab)
-  : search recipes for items by name, in hand, or targeted
-  : it shows results in a temp inventory with recipes on top
-  : supports localized item names, inverse recipes, and more
-  Additional help pages: (more info: '/recipedia [number]')
-  . 1 general help: this page
-  . 2 available commands: commands used in this plugin
-  . 3 additional info: UI functions, locales, permissions, etc.
-  (page %c of %t)
-- |
-  /recipedia [search keywords]: (default alias /rr)
-  : search 'result recipes' by localized product names
-  : keywords order is important according installed langs
-  /recipehand [i]: (default alias /rh)
-  : search crafting recipes for item held in main hand
-  : with 'i' flag will take item as ingredient (inverse recipes)
-  /recipetarget [i]: (default alias /rt)
-  : search crafting recipes for object targeted with crosshair
-  : with 'i' flag will search for inverse recipes
-  (page %c of %t)
-- |
-  Operation modes: list results, show recipes
-  Mouse actions:
-  . left click item: browse result pages / show recipes
-  . right click item: list products with item as ingredient
-  . click outside: left click: replay, right click: close
-  Installed langs: %l
-  Permissions for you (%n):
-  : %p
-  Homepage: http://dev.bukkit.org/projects/recipedia
-  (page %c of %t)
+helpPage: |
+  Recipedia = search item recipes ingame (no more Alt-Tab!):
+  /recipedia <keywords>: search recipes by item name [/r]
+  /recipehand: show recipes for item held in main hand [/rh]
+  /recipetarget: show recipes for targeted block/entity [/rt]
+  * left click: list items / show recipes
+  * right click: list recipes with item as material
+  * click outside: left click: home, right click: exit
+  Languages: %1$s
+  Your permissions: %2$s
+  More info: http://dev.bukkit.org/projects/recipedia

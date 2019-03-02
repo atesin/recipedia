@@ -55,6 +55,7 @@ public class Dictionary
 			plugin.getLogger().warning("Could not access internal item methods, seem something had changed in this craftbukkit release");
 			plugin.getLogger().warning("Please report it in Recipedia homepage: https://dev.bukkit.org/projects/recipedia/");
 			plugin.getLogger().warning("Search items by name was restricted to just Material names");
+			return;
 		}
 
 		// loop language files to read global and localized names
@@ -69,38 +70,42 @@ public class Dictionary
 		{
 			plugin.getLogger().warning("No local names loaded, read 'config.yml' to know how to enable them");
 			plugin.getLogger().warning("Search items by name was restricted to just Material names");
+			return;
 		}
 		else
 			plugin.getLogger().info("Found localized names for "+localNames.size()+" items");
 		
 		// walk throught materials to fill dictionary with local and material names
 		// had to add "api-version: 1.13" in plugin.yml to get updated materials
-		String globalName;
-		boolean errorLevel = false;
 		for (Material material : Material.values())
 		{
 			// skip uncraftable items
-			if ( !plugin.recipes.isCraftable(new ItemStack(material)) )
+			if ( !plugin.recipes.isProduct(material) || !plugin.recipes.isIngredient(material) )
 				continue;
 			
-			dictionary.put(material, "");
+			/*
+			(Material)               COBBLESTONE
+			  "+"
+			    (globalName)         block.minecraft.cobblestone
+			      "+"
+			        (localNames)     block.minecraft.cobblestone: [Roca, Piedra labrada]
+			          "="
+			            (dictionary) COBBLESTONE: "Roca`Piedra labrada"
+			*/
 			
-			// get global name by item stack and fill dictionary with names
-			if ( errorLevel )
-				continue;
-			
+			// try to get global name by item stack and fill dictionary with names
 			try
 			{
-				globalName = itemGlobalNameMethod.invoke(itemAsNMSCopyMethod.invoke(null, new ItemStack(material))).toString();
+				String globalName = itemGlobalNameMethod.invoke(itemAsNMSCopyMethod.invoke(null, new ItemStack(material))).toString();
 				if ( localNames.containsKey(globalName) )
 					dictionary.put(material, String.join("`", localNames.get(globalName)));
 			}
 			catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e)
 			{
-				errorLevel = true;
 				plugin.getLogger().warning("Could not get item global names, seem something changed in this craftbukkit release");
 				plugin.getLogger().warning("Please report it in Recipedia homepage: https://dev.bukkit.org/projects/recipedia/");
 				plugin.getLogger().warning("Search items by name was restricted to just Material names");
+				return;
 			}
 		}
 		plugin.getLogger().info("Added "+dictionary.size()+" craftable items to dictionary");
@@ -126,10 +131,18 @@ public class Dictionary
 			return localNames;
 		}
 		
+		/*
+		(localNames)     block.minecraft.cobblestone: [Roca]
+		 "+"
+		  (line)         "block.minecraft.cobblestone": "Piedra labrada"
+		   "="
+		    (localNames) block.minecraft.cobblestone: [Roca, Piedra labrada]
+		*/
+		
 		String globalName, localName;
 		for (Entry<String, String> line : (Set<Entry<String, String>>) json.entrySet())
 		{
-			// <globalName, localName>
+			// [globalName, localName]
 			globalName = line.getKey();
 			localName = line.getValue();
 			
@@ -158,18 +171,18 @@ public class Dictionary
 	
 	
 	// keywords --> list(result itemstacks)
-	/** return a list of items matched by given keywords */
+	/** return a list of matched items by given keywords */
 	List<ItemStack> searchItemsByName(String... keywords)
 	{
 		List<ItemStack> result = new ArrayList<ItemStack>();
 		if (keywords.length < 1)
 			return result;
 		
-		String patternMaterial = "(?i).*?"+String.join(".*?", keywords)+".*?";
-		String patternLocalname = "(?i).*?"+String.join("[^`]*?", keywords)+".*?";
+		String patternMaterial = "(?i).*?"+String.join(".*?", keywords)+".*?"; // "(?i).*?foo.*?bar.?*"
+		String patternLocalname = "(?i).*?"+String.join("[^`]*?", keywords)+".*?"; // "(?i).*?foo[^`]*?bar.*?"
 		for (Entry<Material, String> itemNames : dictionary.entrySet())
 			if ( itemNames.getKey().toString().matches(patternMaterial) || itemNames.getValue().matches(patternLocalname) )
-				result.add(new ItemStack(itemNames.getKey()));
+				result.add(plugin.recipes.setLores(new ItemStack(itemNames.getKey())));
 		return result;
 	}
 	

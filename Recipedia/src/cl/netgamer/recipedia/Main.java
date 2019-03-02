@@ -12,26 +12,41 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryType.SlotType;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.world.WorldSaveEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.Recipe;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 
 
+/*
+about storing player instances in collections...
+
+this post in the *official* thread has a very good technical explanation, by desht:
+https://bukkit.org/threads/common-mistakes.100544/#post-1333980
+
+these also, by desht, Comphenix and others, from comment #35 to #43 :
+https://bukkit.org/threads/common-mistakes.100544/page-2#post-1342775
+
+these too, from spigot and bukkit forums:
+https://www.spigotmc.org/threads/storing-a-player-object-in-a-list.165400/
+https://bukkit.org/threads/storing-players-bad-practice.80469/
+*/
+
+
 public final class Main extends JavaPlugin implements Listener
 {
-	
 	private FileConfiguration conf;
 	RecipeBook recipes;
 	private Dictionary dictionary;
 	private Map<Player, Session> sessions = new HashMap<Player, Session>();
-	//private Debug debug;
-	
 	
 	public void onEnable()
 	{
@@ -43,26 +58,34 @@ public final class Main extends JavaPlugin implements Listener
 		
 		getServer().getPluginManager().registerEvents(this, this);
 		getLogger().info("Plugin ready to work");
-		
-		//debug = new Debug(this);
 	}
 
 	
 	public void onDisable()
 	{
-		// can't close player inventory because must be scheduled to next tick when plugin will be disabled
+		// can't schedule close player inventory because next tick plugin will be disabled,
 		// not so neat to leave player inventory opened on reloads but at least it keeps integrity
 		for (Session session : sessions.values())
-			session.fakeClose();
+			session.executeClose();
+	}
+	
+	
+	@EventHandler
+	public void onWorldSave(WorldSaveEvent e)
+	{
+		// similar to onDisable(), this is for clean sessions eventually to prevent memory leaks
+		for (Player player: sessions.keySet())
+			if ( !player.isOnline() )
+				sessions.remove(player);
 	}
 	
 	
 	@EventHandler
 	public void onPlayerQuit(PlayerQuitEvent e)
 	{
-		Session session = sessions.get((Player) e.getPlayer());
-		if ( session != null && !session.fakeClose() )
-			sessions.remove((Player) e.getPlayer());
+		Session session = sessions.get(e.getPlayer());
+		if ( session != null && session.executeClose() )
+			sessions.remove(e.getPlayer());
 	}
 	
 	
@@ -70,44 +93,35 @@ public final class Main extends JavaPlugin implements Listener
 	public void onInventoryClose(InventoryCloseEvent e)
 	{
 		Session session = sessions.get((Player) e.getPlayer());
-		if ( session != null && !session.fakeClose() )
+		if ( session != null && session.executeClose() )
 			sessions.remove((Player) e.getPlayer());
 	}
 	
 	
-	@EventHandler
+	@EventHandler(priority = EventPriority.LOWEST)
 	public void onInventoryClick(InventoryClickEvent e)
 	{
 		// skip if plugin is not being used
 		if ( !sessions.containsKey(e.getWhoClicked()) )
 			return;
 		
-		// plugin is being used, set some vars
+		// plugin is being used, so get some vars
 		e.setCancelled(true);
 		ItemStack item = e.getCurrentItem();
 		SlotType slot = e.getSlotType();
 		Player player = (Player) e.getWhoClicked();
 		Session session = sessions.get(player);
 		
-		/*
-		- click outside
-		  - left click = replay command
-		  - other click (right, double, etc.) = close recipe browsing session
-		- click on empty slot = do nothing
-		- click on hotbar = browse result pages
-		- non-left click = show inverse recipe
-		- click on container while "show recipe" mode = display recipe in crafting grid
-		- other click = display recipe products in container + first recipe in grid
-		*/
-		
-		// replay or close
+		// click outside with...
 		if ( slot == SlotType.OUTSIDE )
 		{
+			// left click > replay session
 			if ( e.getClick() == ClickType.LEFT )
 				session.replay();
+			
+			// other click (right, double, etc.) > close session (on next tick for safety, see InventoryClickEvent javadoc)
 			else
 			{
-				// close inventory here should be scheduled, see InventoryClickEvent javadoc
 				new BukkitRunnable()
 				{
 					@Override
@@ -116,30 +130,37 @@ public final class Main extends JavaPlugin implements Listener
 						player.closeInventory();
 					}
 				}.runTask(this);
+				return;
 			}
 		}
 		
-		// do nothing
-		else if ( isEmpty(item) );
+		// click an empty slot > do nothing
+		else if ( isEmptyItem(item) )
+			return;
 		
-		// navigate page
+		// click an item in...
+		
+		// hotbar > navigate page
 		else if ( slot == SlotType.QUICKBAR )
-			session.showPage(e.getSlot());
+			session.showResults(e.getSlot());
 		
-		// list inverse recipes
+		// non-left click > list inverse recipes (entering in result mode)
 		else if ( e.getClick() != ClickType.LEFT )
 		{
-			if ( hasPermission(player, "ingredient") )
-				session.updateProducts(recipes.getInverseRecipeProducts(item));
+			if ( hasPermission(player, "ingredient", false) && session.updateResults(recipes.getProductsMadeWith(item)) );
 		}
 		
-		// show recipe in grid
-		else if ( slot == SlotType.CONTAINER && session.isShowingRecipe() )
-			session.showRecipe(item, e.getSlot());
+		// left click an item in...
 		
-		// list item recipes (products)
-		else
+		// container slot while in recipe mode > show recipe in grid
+		else if ( slot == SlotType.CONTAINER && session.inRecipeMode() )
+			session.showRecipe(e.getSlot(), item);
+		
+		// top inventory, or any slot while in result mode > list recipe products + show 1st recipe (entering in recipe mode)
+		else // checks pending?
 			session.updateRecipes(item);
+		
+		player.updateInventory();
 	}
 	
 	
@@ -153,126 +174,120 @@ public final class Main extends JavaPlugin implements Listener
 
 	
 	@Override
-	public boolean onCommand(CommandSender sender, Command cmd, String alias, String[] args)
+	public boolean onCommand(CommandSender sender, Command command, String alias, String[] args)
 	{
-		// skip unrelated commands
-		if ( !cmd.getName().matches("(?i)recipe(dia|hand|target)") )
-			return true;
-		String cmdName = cmd.getName().toLowerCase();
-		
-		/* /// debug
-		if ( debug.check(sender, args) )
-			return true;
-		// */
-		
-		// the only useful info for console admins may be installed languages
-		if ( !(sender instanceof Player) )
+		// process /recipedia command
+		if ( command.getName().equalsIgnoreCase("recipedia") )
 		{
-			sender.sendMessage("\u00A7eRecipedia plugin requires the Minecraft graphic client");
-			sender.sendMessage("\u00A7eRead 'config.yml' to know how to configure and use it");
-			sender.sendMessage("\u00A7eInstalled locales: "+dictionary.getLocales());
+			// with no args, display help page for everyone
+			if (args.length < 1)
+				return die(sender, "helpPage", dictionary.getLocales(), listPermissions(sender));
+			
+			if ( !(sender instanceof Player) )
+				return true;
+			
+			Player player = (Player) sender;
+			if ( hasPermission(player, "search", true) && displayResults(player, dictionary.searchItemsByName(args)) );
 			return true;
 		}
+		
 		Player player = (Player) sender;
 		
-		// proccess primary command
-		if ( cmdName.equals("recipedia") )
-		{
-			// print help page on [no] number entered
-			if ( args.length < 1 || args[0].equals("1") )
-				return help(player, 1);
-			try
-			{
-				int page = Integer.parseInt(args[0]);
-				if ( args.length == 1 )
-					return help(player, page);
-				else
-					return die(player, "invalidArguments");
-			}
-			catch(NumberFormatException e){}
-			
-			// list search results on word[s] entered
-			if ( hasPermission(player, "search") && showResults(player, dictionary.searchItemsByName(args)) );
-			return true;
-		}
+		// process /recipehand command
+		if ( command.getName().equalsIgnoreCase("recipehand") && hasPermission(player, "hand", true) )
+			return displayRecipes(player, player.getInventory().getItemInMainHand());
 		
-		// try to get queried item
-		ItemStack item;
-		if ( cmdName.equals("recipehand") && hasPermission(player, "hand") )
-			item = player.getInventory().getItemInMainHand();
-		else if ( cmdName.equals("recipetarget") && hasPermission(player, "target") )
-			item = new Sight(player).getTargetItem();
-		else
-			return true;
+		// process /recipetarget command
+		if ( command.getName().equalsIgnoreCase("recipetarget") && hasPermission(player, "target", true) )
+			return displayRecipes(player, new Sight(player).getTargetItem());
 		
-		// show [inverse] recipes for item
-		if ( args.length < 1 )
-			return showRecipes(player, item);
-		else if ( args[0].equalsIgnoreCase("i") )
-		{
-			if ( hasPermission(player, "ingredient") && showResults(player, recipes.getInverseRecipeProducts(item)) );
-			return true;
-		}
-		else
-			return die(player, "invalidArguments");
-	}
-	
-	
-	private boolean showRecipes(Player player, ItemStack item)
-	{
-		if ( !recipes.isCraftable(item) )
-			return die(player, "noRecipesFound");
-		sessions.put(player, new Session(this, player, item));
 		return true;
 	}
 	
 	
-	private boolean showResults(Player player, List<ItemStack> results)
+	private boolean displayRecipes(Player player, ItemStack item)
+	{
+		if ( recipes.isProduct(item) )
+		{
+			if ( hasPermission(player, "recipe", true) )
+				// read line 28 comments about storing player instances in collections
+				sessions.put(player, new Session(this, player, item));
+			return true;
+		}
+		
+		// if no "normal" recipes found, try inverse ones
+		if ( recipes.isIngredient(item) )
+		{
+			if ( hasPermission(player, "ingredient", true) )
+				displayResults(player, recipes.getProductsMadeWith(item));
+		}
+		
+		else
+			die(player, "noRecipesFound");
+		return true;
+	}
+	
+	
+	private boolean displayResults(Player player, List<ItemStack> results)
 	{
 		if ( results.size() < 1 )
 			return die(player, "noItemsFound");
 		if ( results.size() > 243 )
 			return die(player, "tooManyResults");
-		// read WWW about storing player instances in collections
+		if ( results.size() == 1 )
+			return displayRecipes(player, results.get(0));
+		
+		// read line 28 comments about storing player instances in collections
 		sessions.put(player, new Session(this, player, results));
 		return true;
+	}
+	
+	///// REVISAR ESTA WEA v
+	
+	/** check before load recipes for given product */
+	List<Recipe> findRecipes(Player player, ItemStack product)
+	{
+		List<Recipe> lRecipes = recipes.getRecipesFor(product);
+		
+		// if no "normal" recipes found, try inverse ones before
+		if ( lRecipes.isEmpty() )
+			sessions.get(player).updateResults(recipes.getProductsMadeWith(product));
+		return lRecipes;
 	}
 	
 	
 	// utilities
 	
 	
-	boolean hasPermission(Player player, String permission)
+	boolean hasPermission(Player player, String permission, boolean verbose)
 	{
-		boolean granted = hasPermissionQuiet(player, permission);
-		if ( !granted )
-			player.sendMessage(msg("noPermission"));
-		return granted;
+		permission = "recipedia."+permission;
+		boolean allowed = player.isOp() || !player.isPermissionSet(permission) || player.hasPermission(permission);
+		
+		if ( !allowed && verbose )
+			player.sendMessage(msg("noPermission", permission));
+		return allowed;
+	}
+
+	
+	private String listPermissions(CommandSender sender)
+	{
+		if ( !(sender instanceof Player) )
+			return "Recipedia plugin requires Minecraft client";
+		
+		Player player = (Player) sender;
+		return
+			(hasPermission(player, "search",     false)? '+': '-')+"search "+
+			(hasPermission(player, "ingredient", false)? '+': '-')+"ingredient "+
+			(hasPermission(player, "hand",       false)? '+': '-')+"hand "+
+			(hasPermission(player, "target",     false)? '+': '-')+"target "+
+			(hasPermission(player, "recipe",     false)? '+': '-')+"recipe";
 	}
 	
 	
-	private boolean hasPermissionQuiet(Player player, String permission)
+	private boolean die(CommandSender sender, String key, Object... args)
 	{
-		if ( player.isOp() || !player.isPermissionSet("recipedia."+permission) )
-			return true;
-		return player.hasPermission("recipedia."+permission);
-	}
-	
-	
-	private String listPermissions(Player player)
-	{
-		return ""
-			+(hasPermissionQuiet(player, "search")?     '+': '-')+"search "
-			+(hasPermissionQuiet(player, "hand")?       '+': '-')+"hand "
-			+(hasPermissionQuiet(player, "target") ?    '+': '-')+"target "
-			+(hasPermissionQuiet(player, "ingredient")? '+': '-')+"ingredient "
-			+(hasPermissionQuiet(player, "recipe")?     '+': '-')+"recipe";
-	}
-	
-	
-	private boolean die(CommandSender sender, String key)
-	{
-		sender.sendMessage(msg(key));
+		sender.sendMessage(msg(key, args));
 		return true;
 	}
 	
@@ -280,43 +295,23 @@ public final class Main extends JavaPlugin implements Listener
 	String msg(String key, Object... args)
 	{
 		if ( conf.contains(key) )
-			return String.format("\u00A7e"+conf.getString(key), args);
+			return String.format("\u00A7e"+conf.getString(key), args)
+				.replaceAll("[\r\n]+$", "")
+				.replaceAll("(?m):(.*?)$", ":\u00A7b$1\u00A7e");
 		else
 			return "\u00A7dMissing string in conf: \u00A7e"+key;
 	}
 	
 	
-	private boolean help(Player player, int pageIndex)
+	static boolean isEmptyItem(Material material)
 	{
-		// chat format codes must be lowercase
-		List<String> helpPages = conf.getStringList("helpPages");
-		pageIndex = Math.max(1, Math.min(pageIndex, helpPages.size()));
-		
-		player.sendMessage("\u00A7e"+helpPages.get(pageIndex - 1)
-			.replaceAll("[\r\n]+$", "")
-			.replaceAll("(?m):(.*?)$", ":\u00A7b$1\u00A7e")
-			/* .replaceAll("([^%])%c", "$1"+pageIndex)
-			.replaceAll("([^%])%t", "$1"+helpPages.size())
-			.replaceAll("([^%])%n", "$1"+dictionary.getLocales())
-			.replaceAll("([^%])%p", "$1"+listPermissions(player))
-			.replaceAll("([^%])%l", "$1"+player.getName())
-			.replaceAll("%%([ctlpn])", "%$1");
-			// */
-			.replace("%c", String.valueOf(pageIndex))
-			.replace("%t", String.valueOf(helpPages.size()))
-			.replace("%n", dictionary.getLocales())
-			.replace("%p", listPermissions(player))
-			.replace("%l", player.getName())
-		);
-		return true;
+		return material == null || material == Material.AIR || material == Material.LEGACY_AIR;
 	}
 	
 	
-	static boolean isEmpty(ItemStack item)
+	static boolean isEmptyItem(ItemStack item)
 	{
-		if ( item == null )
-			return true;
-		return item.getType() == Material.AIR || item.getType() == Material.LEGACY_AIR;
+		return item == null || isEmptyItem(item.getType());
 	}
 	
 }

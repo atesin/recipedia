@@ -216,7 +216,7 @@ class Sight
 			return ((Item) entity).getItemStack();
 		case ITEM_FRAME:
 			ItemStack framedItem = ((ItemFrame) entity).getItem();
-			if ( Main.isEmpty(framedItem) )
+			if ( Main.isEmptyItem(framedItem) )
 				return new ItemStack(Material.ITEM_FRAME);
 			return framedItem;
 		case ARMOR_STAND:
@@ -235,7 +235,7 @@ class Sight
 			else
 				standItem = stand.getHelmet();
 			
-			if ( Main.isEmpty(standItem) )
+			if ( Main.isEmptyItem(standItem) )
 				return new ItemStack(Material.ARMOR_STAND);
 			return standItem;
 		default:
