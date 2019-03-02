@@ -2,19 +2,22 @@ name: Recipedia
 main: cl.netgamer.recipedia.Main
 version: 1
 api-version: 1.13
-# url??
+url: https://dev.bukkit.org/projects/recipedia
+# just to make the plugin load at last 
+# not sure, read PluginDescriptionFile javadoc, watch bukkit code and do some tests
+softdepends: [unexistentPlugin]
 
 commands:
   recipedia:
     description: "Search recipes by item name"
     usage: "more info: /recipedia"
-    aliases: [rr]
+    aliases: [r]
   recipehand:
-    description: "Search recipes for item in main hand"
+    description: "Show recipes for item held in main hand"
     usage: "more info: /recipedia"
     aliases: [rh]
   recipetarget:
-    description: "Search recipes for targeted block/entity"
+    description: "Show recipes for targeted block/entity"
     usage: "more info: /recipedia"
     aliases: [rt]
     

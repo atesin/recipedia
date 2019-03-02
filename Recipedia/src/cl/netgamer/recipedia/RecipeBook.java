@@ -6,6 +6,9 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+
 import org.bukkit.Material;
 import org.bukkit.inventory.FurnaceRecipe;
 import org.bukkit.inventory.ItemStack;
@@ -16,27 +19,22 @@ import org.bukkit.inventory.ShapelessRecipe;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.RecipeChoice.MaterialChoice;
 
-
+/** maintain recipes and items reference, inverse recipes, ingredients, fuels, etc. */
 class RecipeBook
 {
-	
-	Main plugin;
-	private Map<String, List<String>> inverseRecipes = new HashMap<String, List<String>>();
+	private Main plugin;
+	private Map<String, Set<String>> inverseRecipes = new HashMap<String, Set<String>>();
 	private List<String> fuels = new ArrayList<String>();
-	
 	
 	RecipeBook(Main plugin)
 	{
 		this.plugin = plugin;
-		inverseRecipes.put(null, new ArrayList<String>());
-		inverseRecipes.put("AIR", new ArrayList<String>());
-		inverseRecipes.put("LEGACY_AIR", new ArrayList<String>());
 		
 		Iterator<Recipe> recipes = plugin.getServer().recipeIterator();
 		while ( recipes.hasNext() )
 		{
 			Recipe recipe = recipes.next();
-			if ( Main.isEmpty(recipe.getResult()) )
+			if ( Main.isEmptyItem(recipe.getResult()) ) // recipes to make air???
 				continue;
 			
 			String product = recipe.getResult().getType().toString();
@@ -55,8 +53,6 @@ class RecipeBook
 							registerInverseRecipe(choice, product);
 		}
 		
-		for (List<String> products : inverseRecipes.values())
-			products.sort(null);
 		plugin.getLogger().info("Loaded inverse recipes for "+inverseRecipes.size()+" ingredients");
 		
 		for (Material material : Material.values())
@@ -66,49 +62,70 @@ class RecipeBook
 	}
 	
 	
+	/** build an ingredient list with its resulting products, at init time (internal use) */
 	private void registerInverseRecipe(Material ingredient, String product)
 	{
 		String ingredientName = ingredient.toString();
 		if ( !inverseRecipes.containsKey(ingredientName) )
-			inverseRecipes.put(ingredientName, new ArrayList<String>());
-		
-		List<String> products = inverseRecipes.get(ingredientName);
-		if ( !products.contains(product) )
-			products.add(product);
+			inverseRecipes.put(ingredientName, new TreeSet<String>());
+		inverseRecipes.get(ingredientName).add(product);
 	}
 	
 	
+	/** return if items of given material can be used as ingredient to craft other items */
+	boolean isIngredient(Material material)
+	{
+		// skip air as an ingredient
+		return !Main.isEmptyItem(material) && inverseRecipes.containsKey(material.toString());
+	}
+	
+	
+	/** return if given item can be used as ingredient to craft other items */
 	boolean isIngredient(ItemStack item)
 	{
-		return inverseRecipes.containsKey(item.getType().toString());
+		return !Main.isEmptyItem(item) && isIngredient(item.getType());
 	}
 	
 	
-	boolean isCraftable(ItemStack item)
+	/** return if there is some recipe for crafting an item of this material */
+	boolean isProduct(Material material)
 	{
-		// recipes to make air?
-		if ( Main.isEmpty(item) )
-			return false;
-		
-		return plugin.getServer().getRecipesFor(item).size() > 0 || isIngredient(item);
+		return material != null && isProduct(new ItemStack(material));
 	}
 	
 	
-	List<ItemStack> getInverseRecipeProducts(ItemStack ingredient)
+	/** return if there is some recipe for crafting this item */
+	boolean isProduct(ItemStack item)
+	{
+		return getRecipesFor(item).size() > 0;
+	}
+	
+	
+	/** get a list of crafting recipes for the given item, excluding recipes to make air (yes, there are) */
+	List<Recipe> getRecipesFor(ItemStack product)
+	{
+		if ( Main.isEmptyItem(product) )
+			return new ArrayList<Recipe>();
+		return plugin.getServer().getRecipesFor(product);
+	}
+	
+	
+	/** get a list of products that can be crafted from the given ingredient */
+	List<ItemStack> getProductsMadeWith(ItemStack ingredient)
 	{
 		List<ItemStack> products = new ArrayList<ItemStack>();
 		
-		for (String product : inverseRecipes.get(ingredient.getType().toString()))
-			products.add(setLores(new ItemStack(Material.getMaterial(product))));
-		
+		if ( isIngredient(ingredient) )
+			for (String product : inverseRecipes.get(ingredient.getType().toString()))
+				products.add(setLores(new ItemStack(Material.getMaterial(product))));
 		return products;
 	}
 	
 	
-	ItemStack shuffleFuel(ItemStack fuel)
+	/** return some random fuel item, other than passed if any */
+	ItemStack pickFuel(ItemStack fuel)
 	{
-		String fuelInput = fuel == null ? "" : fuel.getType().toString();
-		String fuelOutput;
+		String fuelInput = fuel == null? "": fuel.getType().toString(), fuelOutput;
 		do
 			fuelOutput = fuels.get((int) (Math.random() * fuels.size()));
 		while ( fuelInput.equals(fuelOutput) );
@@ -116,22 +133,25 @@ class RecipeBook
 	}
 	
 	
-	ItemStack getIngredient(FurnaceRecipe recipe)
+	/** get the ingredient of a furnace recipe */
+	ItemStack getIngredient(Recipe recipe)
 	{
-		return setLores(recipe.getInput());
+		return setLores(((FurnaceRecipe) recipe).getInput());
 	}
 	
 	
-	ItemStack[] getIngredients(ShapelessRecipe recipe)
+	/** get ingredients from a shapeless recipe */ 
+	ItemStack[] getIngredients(Recipe recipe)
 	{
 		ItemStack[] ingredients = new ItemStack[9];
 		int index = 0;
-		for (ItemStack ingredient : recipe.getIngredientList())
+		for (ItemStack ingredient : ((ShapelessRecipe) recipe).getIngredientList())
 			ingredients[index++] = setLores(ingredient);
 		return ingredients;
 	}
 	
 	
+	/** get ingredient choices from a shaped recipe according cycle */
 	ItemStack[] getIngredients(ShapedRecipe recipe, int cycle)
 	{
 		/*
@@ -141,7 +161,7 @@ class RecipeBook
 
 		shape = (String[rows]) {[abc],[def],[ghi]}... {[ab],[cd]}... etc
 		ingredients = (Map<char,ItemStack>) a->WOOD, b->WOOD, c->STONE... etc
-		choices = (Map<char,RecipeChoice>) a->[WOOD,STONE], b->[STICK]...
+		choices = (Map<char,RecipeChoice>) a->[WOOD,STONE], b->[STICK], c->null...
 		to access choices cast RecipeChoice to MaterialChoice
 		*/
 
@@ -159,25 +179,33 @@ class RecipeBook
 			{
 				ItemStack ingredient = recipe.getIngredientMap().get(shape[row].charAt(col));
 				Map<Character, RecipeChoice> choiceMap = recipe.getChoiceMap();
-				List<Material> materials;
-				if ( choiceMap == null )
-					materials = new ArrayList<Material>();
-				else
-					materials = ((MaterialChoice) choiceMap.get(shape[row].charAt(col))).getChoices();
-				ingredient.setType(materials.get(cycle % materials.size()));
-				ingredients[row*3 + col + center] = setLores(ingredient);
+				List<Material> materials = null;
+				
+				if ( choiceMap != null )
+				{
+					RecipeChoice choice = choiceMap.get(shape[row].charAt(col));
+					if ( choice != null )
+						materials = ((MaterialChoice) choice).getChoices();
+				}
+				
+				if ( materials != null )
+				{
+					ingredient.setType(materials.get(cycle % materials.size()));
+					ingredients[row*3 + col + center] = setLores(ingredient);
+				}
 			}
 		return ingredients;
 	}
 	
 	
-	private ItemStack setLores(ItemStack item)
+	/** add item information tooltip */
+	ItemStack setLores(ItemStack item)
 	{
 		if ( item != null )
 		{
 			List<String> lores = new ArrayList<String>();
 			
-			int numRecipes = plugin.getServer().getRecipesFor(item).size();
+			int numRecipes = getRecipesFor(item).size();
 			if ( numRecipes > 0 )
 				lores.add(plugin.msg("recipesCount", numRecipes));
 			if ( isIngredient(item) )

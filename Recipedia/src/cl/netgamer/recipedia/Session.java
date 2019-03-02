@@ -9,143 +9,143 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.meta.ItemMeta;
 
+/**
+Holds information about player's browsing recipes session, it is instanced when plugin command
+is typed and destroyed when player closes crafting inventory. Also it serves as bridge
+beetween the player actions and his crafting inventory.<br/><br/>
+
+It has 2 operation modes: result and recipe mode. In result mode container displays search results,
+hotbar shows tabs to navigate result pages, and crafting grid is empty. Recipe mode displays a recipe
+in crafting slots, a list of recipe products in container, and no tabs in hotbar.<br/><br/>
+
+It has 4 main methods: to load results and recipes, and to display (previously loaded) results and recipes.
+Each method may finally set contents on 3 inventory views: crafting grid, container, and hotbar.
+*/
+
 
 class Session
 {
-	
-	/*
-	ESTA CLASE MANTIENE INFORMACION DE LA SESION DE BROWSING RECIPES DEL JUGADOR
-	SE CREA AL ESCRIBIR EL COMANDO
-	
-	mantiene informacion como
-	
-	- inventario original del jugador
-	- comando escrito (en caso de reescribirlo)
-	- item buscado (en caso de reescribirlo)
-	*/
-	
-	/*
-	session has 2 operation modes
-	- show search results   = populated hotbar, empty crafting slots
-	- show crafting recipes = empty hotbar, populated crafting slots
-	
-	any action should involve 3 steps in player inventory view
-	- update hotbar (just needed when updating products or recipes)
-	- update storage (except in "recipes" mode)
-	- update crafting, applies just to crafting slots
-	
-	actions:
-	- restore (before close)
-	- reset
-	- show recipe     = update crafting inventory
-	- update recipes  = update products + clear hotbar + browse page 0 + show recipe 0
-	- update products = update hotbar + show page page 0 + clear crafting
-	- show page       = update storage inventory
-	
-	*/
-	
 	private Main plugin;
 	private Player player;
-	private InventoryKeeper playerInventory;
-	private ItemStack firstProduct = null;
-	private List<ItemStack> firstProducts = null;
-	private List<ItemStack> products;
-	private List<Recipe> recipes;
-	private boolean openingInventory = false;
-	private int methodCalls = 0;
+	private InventoryKeeper keeper;
+	private ItemStack firstProduct;
+	private List<ItemStack> firstResults;
+	private List<ItemStack> currentResults;
+	private List<Recipe> currentRecipes;
+	private boolean calledFromClick = true;
 	
-	// openingInventory:
-	// Player.openInventory() called from InventoryClickEvent also trigger an additional InventoryCloseEvent,
-	// setting this flag just before Player.openInventory() helps to skip "fake" InventoryClickEvent's
-	
-	// methodCalls:
-	// first Player.openInventory() is called from onCommand() so it doesn't trigger a an additional
-	// InventoryCloseEvent, i need a way to count method calls so i can skip it
+	/*
+	calledFromClick:
+	player.openInventory() called from InventoryClickEvent also execute registered InventoryCloseEvent,
+	setting this flag just before this method helps to decide if "execute" real or "skip" fake close events,
+	also serves to guess if should echo denied permission actions.
+	*/
 	
 	Session(Main plugin, Player player, ItemStack product)
 	{
-		this.plugin = plugin;
-		this.player = player;
-		playerInventory = new InventoryKeeper(plugin, player);
-		
-		firstProduct = product;
-		updateRecipes(product);
+		newSession(plugin, player, product, null);
 	}
 	
 	
 	Session(Main plugin, Player player, List<ItemStack> products)
 	{
+		newSession(plugin, player, null, products);
+	}
+	
+	
+	/** ex constructor, can't cascade constructors because result in different hashes, internal use */
+	private void newSession(Main plugin, Player player, ItemStack product, List<ItemStack> results)
+	{
 		this.plugin = plugin;
 		this.player = player;
-		playerInventory = new InventoryKeeper(plugin, player);
+		keeper = new InventoryKeeper(plugin, player);
 				
-		firstProducts = products;
-		updateProducts(products);
+		firstProduct = product;
+		firstResults = results;
+		replay();
+		calledFromClick = false;
 	}
 	
 	
-	Player getOwner()
-	{
-		return player;
-	}
-	
-	
-	boolean fakeClose()
-	{
-		if ( openingInventory )
-		{
-			openingInventory = false;
-			return true;
-		}
-		
-		playerInventory.restore();
-		return false;
-	}
-	
-	
+	/** back to starting condition */
 	void replay()
 	{
-		products = null;
-		recipes = null;
+		// clear previous cached
+		currentResults = null;
+		currentRecipes = null;
 		
 		// action according operation mode
-		if ( firstProduct != null )
-			updateRecipes(firstProduct);
+		if ( firstProduct == null )
+			updateResults(firstResults);
 		else
-			updateProducts(firstProducts);
+			updateRecipes(firstProduct);
+		player.updateInventory();
 	}
 	
 	
-	void showRecipe(ItemStack product, int index)
+	/** restore player inventory and return status, if close event is real */
+	boolean executeClose()
 	{
-		if ( ++methodCalls > 1 )
-			openingInventory = true;
-		
-		// if no showing recipe this point is never reached
-		//if ( plugin.hasPermission(player, "recipe") )
-			playerInventory.updateCrafting(player, recipes.get(index - 9), product);
+		// 2 birds with 1 stone: switch calledFromClick flag and restore player inventory if close event was not called from click
+		if ( calledFromClick = !calledFromClick )
+			keeper.restore();
+		return calledFromClick;
 	}
 	
 	
-	void updateRecipes(ItemStack product)
+	/** load search result items, switching to result mode, boolean returned is dummy */
+	boolean updateResults(List<ItemStack> results)
 	{
-		// update products + clear hotbar + browse page 0 + show recipe 0
-		
-		if ( !plugin.hasPermission(player, "recipe") )
+		// set result mode
+		currentRecipes = null;
+		updateResultsPrivate(results);
+		return true;
+	}
+	
+	
+	/** load search result items, without modifying operation mode so can list recipe products also, internal use */
+	private void updateResultsPrivate(List<ItemStack> results)
+	{
+		// result count out of limits
+		if ( results == null || results.size() < 1 ||  results.size() > 243)
 			return;
 		
-		// cache recipes to minimize server recipes iteration (and set "recipe" mode)
-		recipes = plugin.getServer().getRecipesFor(product);
-		
-		// if no "normal" recipes found, try inverse ones
-		if ( recipes.size() < 1 )
+		// if given list is 1 search result (not 1 recipe), show item recipes at once
+		if ( results.size() == 1 && !inRecipeMode() )
 		{
-			updateProducts(plugin.recipes.getInverseRecipeProducts(product));
+			updateRecipes(results.get(0));
 			return;
 		}
 		
-		List<ItemStack> recipeProducts = new ArrayList<ItemStack>();
-		for (Recipe recipe : recipes)
+		// all seem to be ok, proceed with listing updated search results
+		currentResults = results;
+		showRecipe(9, null); // clear crafting grid
+		showResults(0); // show first page of search results
+		keeper.setHotbar((int) ((results.size() + 26) / 27)); // show result page navigation tabs
+	}
+	
+	
+	/** perform some checks before load recipes for given product */
+	void updateRecipes(ItemStack product)
+	{
+		List<Recipe> recipes = plugin.recipes.getRecipesFor(product);
+		
+		// if no "normal" recipes found, try inverse ones before
+		if ( recipes.isEmpty() )
+		{
+			if ( plugin.hasPermission(player, "ingredient", false) && updateResults(plugin.recipes.getProductsMadeWith(product)) );
+			return;
+		}
+		// do the last permission check (no needded in first call because checks was previously done)
+		else if ( !calledFromClick && !plugin.hasPermission(player, "recipe", false) )
+			return;
+		
+		// cache recipes to minimize server recipes iteration (and set recipe mode)
+		currentRecipes = recipes;
+		
+		// collect recipe products with lore
+		currentResults = new ArrayList<ItemStack>();
+		for (Recipe recipe : currentRecipes)
 		{
 			product = recipe.getResult();
 			
@@ -160,76 +160,37 @@ class Session
 			meta.setLore(lores);
 			product.setItemMeta(meta);
 
-			recipeProducts.add(product);
+			currentResults.add(product);
 		}
 		
-		updateProductsPrivate(recipeProducts);
+		// show results (recipe products) and crafting (first recipe), and tabs (no tabs)
+		showRecipe(9, currentResults.get(0)); // show first recipe in crafting grid
+		showResults(0); // show the only page of recipe products
+		keeper.setHotbar(0); // clear result page navigation tabs
 	}
 	
 	
-	void updateProducts(List<ItemStack> products)
+	/** display specified page of loaded search result items */
+	void showResults(int page)
 	{
-		recipes = null;
-		updateProductsPrivate(products);
-	}
-	
-	
-	private void updateProductsPrivate(List<ItemStack> products)
-	{
-		// areSearchResult true if products are search results (throught commands or inverse recipes search)
-		// - update hotbar, clear crafting recipe
-		// areSearchResult false if products are recipe products
-		// - clear hotbar, update crafting recipe
-		
-		// update hotbar + show page page 0 + clear crafting
-		
-		// if products < 1 : no results
-		// if products > 9 pages : too many results
-		// if product == 1 : show recipes
-		
-		if ( products == null || products.size() < 1 )
-			player.sendMessage("no results");
-		
-		else if ( products.size() > 243 )
-			player.sendMessage("too many results");
-		
-		else if ( products.size() == 1 && !isShowingRecipe() )
-			updateRecipes(products.get(0));
-		
-		else
-		{
-			this.products = products;
-			showPage(0);
-			if ( methodCalls > 1 )
-				openingInventory = true;
-			
-			if ( isShowingRecipe() )
-			{
-				playerInventory.updateHotbar(0);
-				playerInventory.updateCrafting(player, recipes.get(0), products.get(0));
-			}
-			
-			else
-			{
-				playerInventory.updateHotbar((int) ((products.size() + 26) / 27));
-				playerInventory.updateCrafting(player, null, null);
-			}
-		}
-	}
-	
-	
-	void showPage(int page)
-	{
-		++methodCalls;
-		int from = page * 27;
-		int to = Math.min(from + 27, products.size());
-		playerInventory.updateStorage(products.subList(from, to));
+		page *= 27;
+		keeper.setStorage(currentResults.subList(page, Math.min(page + 27, currentResults.size())));
 	}
 
 	
-	boolean isShowingRecipe()
+	/** display loaded recipe number "index" with given item in resulting product slot */
+	void showRecipe(int index, ItemStack product)
 	{
-		return recipes != null;
+		// next openInventory() could pass execution to InventoryCloseEvent so mark to be skipped in advance
+		calledFromClick = true;
+		keeper.setCrafting(product == null? null: currentRecipes.get(index - 9), product); // will call openInventory()
 	}
-
+	
+	
+	/** true if session is running in recipe mode, false if in result mode */
+	boolean inRecipeMode()
+	{
+		return currentRecipes != null;
+	}
+	
 }

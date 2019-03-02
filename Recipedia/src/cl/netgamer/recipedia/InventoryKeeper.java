@@ -7,7 +7,6 @@ import java.util.List;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryType;
-import org.bukkit.inventory.CraftingInventory;
 import org.bukkit.inventory.FurnaceInventory;
 import org.bukkit.inventory.FurnaceRecipe;
 import org.bukkit.inventory.ItemStack;
@@ -16,54 +15,74 @@ import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.ShapelessRecipe;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.scheduler.BukkitRunnable;
 
+
+/**
+This class holds original player inventory contents and wraps player inventory methods.
+It has 3 main methods, for setting crafting inventory, storage and hotbar;
+caller methods are responsibile for update it. It also restores player inventory
+ */
 
 class InventoryKeeper
 {
-	/*
-	standard procedure:
-	- set hotbar (can be 0 to clear)
-	- set storage
-	- set crafting (set recipe and result to null to get an empty workbench)
-	*/
-	
 	private Main plugin;
 	private Player player;
-	private PlayerInventory playerInventory;
 	private ItemStack[] inventoryBackup;
-
+	private ItemCycler cycler;
 	
+	/** modifies the player inventory directly, caller methods are responsibile for update it */
 	InventoryKeeper(Main plugin, Player player)
 	{
-		this.player = player;
 		this.plugin = plugin;
-		playerInventory = player.getInventory();
+		this.player = player;
 		inventoryBackup = player.getInventory().getContents();
+		cycler = new ItemCycler(plugin, player);
 	}
 	
 	
-	void updateStorage(List<ItemStack> products)
+	/** display components (and cycle them) on a new crafting inventory according recipe */
+	void setCrafting(Recipe recipe, ItemStack product)
 	{
-		//// setStorageContents() is bogus
-		//for (int i = products.size(); i < 27; ++i)
-		//	products.add(null);
-		//player.getInventory().setStorageContents(products.toArray(new ItemStack[0]));
+		if ( recipe instanceof FurnaceRecipe )
+		{
+			FurnaceInventory furnace = (FurnaceInventory) player.openInventory(plugin.getServer().createInventory(player, InventoryType.FURNACE)).getTopInventory();
+			// if above openInventory() is called from InventoryClickEvent, it calls registered InventoryCloseEvent from here
+			furnace.setResult(product);
+			furnace.setSmelting(plugin.recipes.getIngredient(recipe));
+			cycler.randomizeFuel(furnace);
+			return;
+		}
 		
-		PlayerInventory storage = player.getInventory();
+		Workbench workbench = new Workbench(plugin, player);
+		workbench.setResult(product);
+		player.openInventory(workbench.getInventory()).getTopInventory();
+		// if above openInventory() is called from InventoryClickEvent, it calls registered InventoryCloseEvent from here 
+		
+		if ( recipe instanceof ShapelessRecipe )
+			workbench.setMatrix(plugin.recipes.getIngredients(recipe));
+		else if ( recipe instanceof ShapedRecipe )
+			cycler.cycleIngredients(workbench, recipe);
+	}
+	
+	
+	/** set player inventory contents in storage slots */
+	void setStorage(List<ItemStack> results)
+	{
+		PlayerInventory backpack = player.getInventory();
 		int index = 0;
-		while ( index < products.size() )
-			storage.setItem(index + 9, products.get(index++));
+		while ( index < results.size() && index < 27 )
+			backpack.setItem(index + 9, results.get(index++));
 		while ( index < 27 )	
-			storage.setItem(index++ + 9, null);
-		
-		player.updateInventory();
+			backpack.setItem(index++ + 9, null);
 	}
 	
 	
-	void updateHotbar(int tabs)
+	/** set tab icons (paper items with lore) in player hotbar */
+	void setHotbar(int tabs)
 	{
+		PlayerInventory backpack = player.getInventory();
 		int tab = 0;
+		
 		while ( tab < tabs )
 		{
 			ItemStack icon = new ItemStack(Material.PAPER, tab + 1);
@@ -74,90 +93,19 @@ class InventoryKeeper
 			meta.setLore(lores);
 			icon.setItemMeta(meta);
 
-			playerInventory.setItem(tab++, icon);
+			backpack.setItem(tab++, icon);
 		}
 		while ( tab < 9 )
-			playerInventory.setItem(tab++, null);
-		player.updateInventory();
+			backpack.setItem(tab++, null);
 	}
 	
 	
-	void updateCrafting(Player player, Recipe recipe, ItemStack product)
-	{
-		if ( recipe instanceof FurnaceRecipe )
-		{
-			FurnaceInventory furnace = (FurnaceInventory) plugin.getServer().createInventory(player, InventoryType.FURNACE);
-			furnace.setResult(product);
-			furnace.setSmelting(plugin.recipes.getIngredient((FurnaceRecipe) recipe));
-			player.openInventory(furnace);
-			shuffleFuel(plugin, player, furnace);
-			player.updateInventory();
-			return;
-		}
-		
-		//CraftingInventory workbench = (CraftingInventory) Bukkit.createInventory(player, InventoryType.WORKBENCH);
-		CraftingInventory workbench = (CraftingInventory) player.openWorkbench(null, true).getTopInventory();
-		workbench.setResult(product);
-		//player.openInventory(workbench);
-		
-		if ( recipe instanceof ShapelessRecipe )
-			workbench.setMatrix(plugin.recipes.getIngredients((ShapelessRecipe) recipe));
-		else if ( recipe instanceof ShapedRecipe )
-			cycleIngredients(plugin, player, workbench, (ShapedRecipe) recipe);
-		player.updateInventory();
-	}
-	
-	
+	/** clean up things and restore player inventory */
 	void restore()
 	{
+		player.getOpenInventory().getTopInventory().clear();
 		player.getInventory().setContents(inventoryBackup);
-		player.openWorkbench(null, true);
 		player.updateInventory();
-		
-		//for (StackTraceElement e : Thread.currentThread().getStackTrace())
-		//	System.out.println(e);
-	}
-	
-	
-	private void cycleIngredients(Main plugin, Player player, CraftingInventory workbench, ShapedRecipe recipe)
-	{
-		new BukkitRunnable()
-		{
-			int cycle = 0;
-			
-			@Override
-			public void run()
-			{
-				if (!player.isOnline() || player.getOpenInventory().getTopInventory() != workbench)
-				{
-					this.cancel();
-					return;
-				}
-				
-				workbench.setMatrix(plugin.recipes.getIngredients(recipe, cycle++));
-				player.updateInventory();
-			}
-		}.runTaskTimer(plugin, 1, 40);
-	}
-	
-	
-	private void shuffleFuel(Main plugin, Player player, FurnaceInventory furnace)
-	{
-		new BukkitRunnable()
-		{
-			@Override
-			public void run()
-			{
-				if (!player.isOnline() || player.getOpenInventory().getTopInventory() != furnace)
-				{
-					this.cancel();
-					return;
-				}
-				
-				furnace.setFuel(plugin.recipes.shuffleFuel(furnace.getFuel()));
-				player.updateInventory();
-			}
-		}.runTaskTimer(plugin, 1, 40);
 	}
 
 }
