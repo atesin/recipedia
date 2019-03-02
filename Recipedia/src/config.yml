@@ -140,7 +140,7 @@ helpPage: |
   /recipehand: show recipes for item held in main hand [/rh]
   /recipetarget: show recipes for targeted block/entity [/rt]
   * left click: list items / show recipes
-  * right click: list recipes with item as material
+  * right click: list recipes with item as ingredient
   * click outside: left click: home, right click: exit
   Languages: %1$s
   Your permissions: %2$s
