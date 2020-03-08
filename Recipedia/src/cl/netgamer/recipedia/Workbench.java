@@ -7,19 +7,19 @@ import org.bukkit.inventory.ItemStack;
 
 /**
 This class is just a non-interactive wrapper to InventoryType.WORKBENCH
-as i discovered the guys at mojang (or bukkit) dropped
+since i discovered the guys at mojang (or bukkit) dropped
 "(CraftingInventory) server.createInventory(InventoryType.WORKBENCH)"
 type casting and the "interactiveness" causes me some troubles.
-More info on "Inventory.createInventory(owner, type)" javadoc
+More info on "Server.createInventory(owner, type)" javadoc
 */
 
 class Workbench
 {
 	private Inventory workbench;
 	
-	Workbench(Main plugin, Player player)
+	Workbench(Main plugin, Player player, String title)
 	{
-		workbench = plugin.getServer().createInventory(player, InventoryType.WORKBENCH);
+		workbench = plugin.getServer().createInventory(player, InventoryType.WORKBENCH, title);
 	}
 	
 	

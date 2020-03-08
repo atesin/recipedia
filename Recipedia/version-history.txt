@@ -1,10 +1,22 @@
-todo:
+Recipedia v2.1140 - 03-2020 (current release)
 
-- recipe browsing session history (back instead replay)
-- ignore accents and tildes in search by name (any hint?)
-- tab complete suggestions
+- added cb 1.14+ support, please backup and update config.yml
+- added new recipe types (blast, smoking, campfire, stonecutting)
+- improved targeting system for /recipetarget
+- rewritten dictionary generation algorithms, robusted and optimized
+- new name search algorithm: matches all non consecutive characters, case and accent unsensitive
+- added 'reload' subcomand for ops, to flush and reload all recipes and dictionaries
+- history system with a 'back' command instead of 'home' when click outside
+- added hints to inventory titles (items found, recipe type)
+- many other fixes and optimizations
 
-Recipedia v1 (current release) - 03-2019
+known bugs:
+
+- items set in stonecutter inventory show invisible, furnace inventory used as a temporary workaround
+- cannot disable green recipe book events, seems a client feature (does anyone know how to disable advancements?)
+- complex recipes not covered, see https://minecraft.gamepedia.com/Recipe#crafting_special_.2A
+
+Recipedia v1 - 03-2019
 
 - project name and version updated from RecipeSearch v3 to Recipedia v1
 - total rewrite to add cb 1.13+ support

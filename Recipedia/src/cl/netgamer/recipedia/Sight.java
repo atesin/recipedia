@@ -1,9 +1,6 @@
 
 package cl.netgamer.recipedia;
 
-import java.util.HashSet;
-import java.util.Set;
-
 import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -14,16 +11,15 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.FallingBlock;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.ItemFrame;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.util.BoundingBox;
 import org.bukkit.util.RayTraceResult;
 
 
 class Sight
 {
 	
-	private Set<Material> lavas = new HashSet<Material>();
 	private Player player;
 	private Location eyeLocation;
 	private Location hitLocation;
@@ -33,53 +29,56 @@ class Sight
 	{
 		this.player = player;
 		eyeLocation = player.getEyeLocation();
-		lavas.add(Material.LAVA);
-		lavas.add(Material.LEGACY_LAVA);
-		lavas.add(Material.LEGACY_STATIONARY_LAVA);
 	}
 	
 	
 	ItemStack getTargetItem()
 	{
-		// get target entity first, then try to find a closest target block
+		// get target entity first, then try to find a closer target block
 		Entity targetEntity = getTargetEntity();
 		Block targetBlock = getTargetBlock();
 		
-		// find if lava is blocking the view
-		if ( blockedByLava() )
-			return null;
-		
 		// return block item if found, otherwise return entity item
 		if ( targetBlock != null )
-			return toItem(targetBlock);
-		return toItem(targetEntity);
+			return blockToItem(targetBlock);
+
+		Material entityMaterial = getEntityMaterial(targetEntity);
+		return entityMaterial == null? null: new ItemStack(entityMaterial);
 	}
 	
 	
+	/**
+	get player target entity, closer than hitDistance
+	@return target entity (it updates hitDistance also), or null if not found
+	*/
 	private Entity getTargetEntity()
 	{
 		Entity targetEntity = null;
 		for (Entity entity : player.getNearbyEntities(5, 5, 5))
 		{
-			// get hit location if exists
+			// on hit, get hit point location
 			RayTraceResult hitStatus = entity.getBoundingBox().rayTrace(eyeLocation.toVector(), eyeLocation.getDirection(), 5);
 			if ( hitStatus == null )
 				continue;
 			
-			// check hit distance
+			// check distance to hit point
 			Location entityHitLocation = hitStatus.getHitPosition().toLocation(entity.getWorld());
 			double entityHitDistance = eyeLocation.distanceSquared(entityHitLocation);
 			if ( entityHitDistance > hitDistance )
 				continue;
 			
+			// closer candidate found, update data
 			targetEntity = entity;
-			hitLocation = entityHitLocation;
 			hitDistance = entityHitDistance;
 		}
 		return targetEntity;
 	}
 	
 	
+	/**
+	get player target block, closest than hitDistance
+	@return target clock (it updates hitDistance also), or null if not found
+	*/
 	private Block getTargetBlock()
 	{
 		// get target block (if any) with precise collision shape
@@ -94,40 +93,35 @@ class Sight
 			return null;
 		
 		hitDistance = blockHitDistance;
+		
+		// transparent lava fix: walk blocks in player line of sight until target or lava were reached
+		for (Block block : player.getLineOfSight(null, 6))
+		{
+			if ( block == targetBlock ||  isLavaBlock(block) )
+				return block;
+		}
+		
 		return targetBlock;
 	}
 	
 	
-	private boolean blockedByLava()
+	@SuppressWarnings("deprecation")
+	private boolean isLavaBlock(Block block)
 	{
-		// try to fix the transparent lava block flaw
-		Set<Material> transparent = new HashSet<Material>();
-		Block testBlock;
-		Material testMaterial;
-		
-		// advance blocks throught line of sight adding them to transparent set
-		// repeat until lava were reached
-		do
+		// legacy materials for servers updated prior "the flattening"
+		switch (block.getType())
 		{
-			testBlock = player.getTargetBlock(transparent, 6);
-			testMaterial = testBlock.getType();
-			if ( testBlock == null || transparent.contains(testMaterial) )
-				return false;
-			transparent.add(testMaterial);
+		case LAVA:
+		case LEGACY_LAVA:
+		case LEGACY_STATIONARY_LAVA:
+			return true;
+		default:
+			return false;
 		}
-		while ( !lavas.contains(testMaterial) );
-		
-		// get hit distance and compare with previous, hitbox used to surpass fluid collision flaw
-		RayTraceResult hitStatus = BoundingBox.of(testBlock).rayTrace(eyeLocation.toVector(), eyeLocation.getDirection(), 6);
-		if ( hitStatus == null )
-			return false;
-		if ( eyeLocation.distanceSquared(hitStatus.getHitPosition().toLocation(testBlock.getWorld())) > hitDistance )
-			return false;
-		return true;
 	}
 	
 	
-	private ItemStack toItem(Block block)
+	private ItemStack blockToItem(Block block)
 	{
 		switch (block.getType())
 		{
@@ -141,87 +135,36 @@ class Sight
 			return new ItemStack(Material.KELP);
 		case POTATOES:
 			return new ItemStack(Material.POTATO);
+		case SWEET_BERRY_BUSH:
+			return new ItemStack(Material.SWEET_BERRIES);
 		case REDSTONE_WIRE:
 			return new ItemStack(Material.REDSTONE);
-		case TALL_SEAGRASS:
-			return new ItemStack(Material.SEAGRASS);
 		case TRIPWIRE:
-			return new ItemStack(Material.TRIPWIRE_HOOK);
+			return new ItemStack(Material.STRING);
 		// BUBBLE_COLUMN
 		// FROSTED_ICE
 		default:
-			String materialName = block.getType().toString();
-			materialName = materialName.replace("WALL_", "").replace("POTTED_", "").replace("ATTACHED_", "").replace("_STEM", "");
-			return new ItemStack(Material.getMaterial(materialName));
+			return new ItemStack(Material.getMaterial(block.getType().toString()
+				.replace("WALL_", "")
+				.replace("POTTED_", "")
+				.replace("ATTACHED_", "")
+				.replace("TALL_", "")
+				.replace("_STEM", "")
+			));
 		}
 	}
 	
 	
-	private ItemStack toItem(Entity entity)
+	private Material getEntityMaterial(Entity entity)
 	{
 		if ( entity == null )
 			return null;
 		
-		switch (entity.getType())
+		// armor stands are the only *not living* living entities
+		// a single armor stand can hold up to 4 items
+		// use the height of the hit location to get it, or the stand itself if empty
+		if ( entity instanceof ArmorStand )
 		{
-		case ARROW:
-		case EGG:
-		case ENDER_PEARL:
-		case LINGERING_POTION:
-		case PAINTING:
-		case MINECART:
-		case SNOWBALL:
-		case SPECTRAL_ARROW:
-		case SPLASH_POTION:
-		case TIPPED_ARROW:
-		case TRIDENT:
-			return new ItemStack(Material.getMaterial(entity.getType().name()));
-		case DRAGON_FIREBALL:
-		case FIREBALL:
-		case SMALL_FIREBALL:
-			return new ItemStack(Material.FIRE_CHARGE);
-		case MINECART_COMMAND:
-			return new ItemStack(Material.COMMAND_BLOCK_MINECART);
-		case ENDER_CRYSTAL:
-			return new ItemStack(Material.END_CRYSTAL);
-		case ENDER_SIGNAL:
-			return new ItemStack(Material.ENDER_EYE);
-		case MINECART_TNT:
-			return new ItemStack(Material.TNT_MINECART);
-		case FIREWORK:
-			return new ItemStack(Material.FIREWORK_ROCKET);
-		case FISHING_HOOK:
-			return new ItemStack(Material.FISHING_ROD);
-		case MINECART_HOPPER:
-			return new ItemStack(Material.HOPPER_MINECART);
-		case LEASH_HITCH:
-			return new ItemStack(Material.LEAD);
-		case MINECART_FURNACE:
-			return new ItemStack(Material.FURNACE_MINECART);
-		case MINECART_CHEST:
-			return new ItemStack(Material.CHEST_MINECART);
-		case THROWN_EXP_BOTTLE:
-			return new ItemStack(Material.EXPERIENCE_BOTTLE);
-		case PRIMED_TNT:
-			return new ItemStack(Material.TNT);
-		case WITHER_SKULL:
-			return new ItemStack(Material.WITHER_SKELETON_SKULL);
-		case BOAT:
-			String woodName = ((Boat)entity).getWoodType().name();
-			woodName = woodName.replace("GENERIC", "OAK").replace("REDWOOD", "SPRUCE");
-			return new ItemStack(Material.getMaterial(woodName+"_BOAT"));
-		case FALLING_BLOCK:
-			return new ItemStack(((FallingBlock)entity).getBlockData().getMaterial());
-		case DROPPED_ITEM:
-			return ((Item) entity).getItemStack();
-		case ITEM_FRAME:
-			ItemStack framedItem = ((ItemFrame) entity).getItem();
-			if ( Main.isEmptyItem(framedItem) )
-				return new ItemStack(Material.ITEM_FRAME);
-			return framedItem;
-		case ARMOR_STAND:
-			// special case: a single armor stand can hold 4 items
-			// use the height of the hit location to select it
 			ArmorStand stand = (ArmorStand) entity;
 			ItemStack standItem;
 			
@@ -236,10 +179,82 @@ class Sight
 				standItem = stand.getHelmet();
 			
 			if ( Main.isEmptyItem(standItem) )
-				return new ItemStack(Material.ARMOR_STAND);
-			return standItem;
-		default:
+				return Material.ARMOR_STAND;
+			return standItem.getType();
+		}
+		
+		// living entities has no matching material (except armor stands)
+		if ( entity instanceof LivingEntity )
 			return null;
+		
+		// try to get the entity material
+		switch (entity.getType())
+		{
+			case DROPPED_ITEM:
+				return ((Item) entity).getItemStack().getType();
+				
+			case FALLING_BLOCK:
+				return ((FallingBlock)entity).getBlockData().getMaterial();
+				
+			case ITEM_FRAME:
+				// get contained item, or item frame itself if empty
+				ItemStack framedItem = ((ItemFrame) entity).getItem();
+				if ( Main.isEmptyItem(framedItem) )
+					return Material.ITEM_FRAME;
+				return framedItem.getType();
+				
+			case BOAT:
+				switch (((Boat) entity).getWoodType())
+				{
+					case ACACIA:
+						return Material.ACACIA_BOAT;
+					case BIRCH:
+						return Material.BIRCH_BOAT;
+					case DARK_OAK:
+						return Material.DARK_OAK_BOAT;
+					case GENERIC:
+						return Material.OAK_BOAT;
+					case JUNGLE:
+						return Material.JUNGLE_BOAT;
+					case REDWOOD:
+						return Material.SPRUCE_BOAT;
+					default:
+						return null;
+				}
+			
+			case MINECART_CHEST:
+				return Material.CHEST_MINECART;
+			case MINECART_COMMAND:
+				return Material.COMMAND_BLOCK_MINECART;
+			case MINECART_FURNACE:
+				return Material.FURNACE_MINECART;
+			case MINECART_HOPPER:
+				return Material.HOPPER_MINECART;
+			case MINECART_TNT:
+				return Material.TNT_MINECART;
+			// MINECART_MOB_SPAWNER has no matching material
+				
+			// fix some mismatches beetween entity and material names
+			case ENDER_CRYSTAL:
+				return Material.END_CRYSTAL;
+			case FIREBALL:
+				return Material.FIRE_CHARGE;
+			case FIREWORK:
+				return Material.FIREWORK_ROCKET;
+			case FISHING_HOOK:
+				return Material.FISHING_ROD;
+			case LEASH_HITCH:
+				return Material.LEAD;
+			case PRIMED_TNT:
+				return Material.TNT;
+			case THROWN_EXP_BOTTLE:
+				return Material.EXPERIENCE_BOTTLE;
+			case WITHER_SKULL:
+				return Material.WITHER_SKELETON_SKULL;
+			
+			// finally try to get material from literal entity name
+			default:
+				return Material.getMaterial(entity.getType().toString());
 		}
 	}
 

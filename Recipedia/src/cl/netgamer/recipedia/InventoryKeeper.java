@@ -7,13 +7,15 @@ import java.util.List;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryType;
-import org.bukkit.inventory.FurnaceInventory;
-import org.bukkit.inventory.FurnaceRecipe;
+import org.bukkit.inventory.CampfireRecipe;
+import org.bukkit.inventory.CookingRecipe;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.ShapelessRecipe;
+import org.bukkit.inventory.StonecuttingRecipe;
 import org.bukkit.inventory.meta.ItemMeta;
 
 
@@ -40,20 +42,55 @@ class InventoryKeeper
 	}
 	
 	
-	/** display components (and cycle them) on a new crafting inventory according recipe */
-	void setCrafting(Recipe recipe, ItemStack product)
+	void setCraftingBlank(String title, ItemStack product)
 	{
-		if ( recipe instanceof FurnaceRecipe )
+		Workbench workbench = new Workbench(plugin, player, title);
+		workbench.setResult(product);
+		player.openInventory(workbench.getInventory()).getTopInventory();
+		// if above openInventory() is called from InventoryClickEvent, it calls registered InventoryCloseEvent from here 
+	}
+	
+	
+	/** display components (and cycle them) on a new crafting inventory according recipe */
+	void setCrafting(Recipe recipe, ItemStack product, int resultsCount)
+	{
+		String title = plugin.msg(resultsCount < 1? recipe.getClass().getSimpleName(): "resultsCount" , resultsCount).substring(2);
+		
+		 // campfire has not inventory and does not uses fuel (also see stonecutter bug below)
+		if ( recipe instanceof CampfireRecipe || recipe instanceof StonecuttingRecipe )
 		{
-			FurnaceInventory furnace = (FurnaceInventory) player.openInventory(plugin.getServer().createInventory(player, InventoryType.FURNACE)).getTopInventory();
+			Inventory furnace = player.openInventory(plugin.getServer().createInventory(player, InventoryType.FURNACE, title)).getTopInventory();
 			// if above openInventory() is called from InventoryClickEvent, it calls registered InventoryCloseEvent from here
-			furnace.setResult(product);
-			furnace.setSmelting(plugin.recipes.getIngredient(recipe));
+			furnace.setItem(0, plugin.recipes.getIngredient(recipe));
+			furnace.setItem(2, product);
+			return;
+		}
+		
+		// other cooking recipes: furnace, blast and smoker
+		if ( recipe instanceof CookingRecipe ) // slot 0=crafting, 1=fuel, 2=result
+		{
+			//FurnaceInventory furnace = (FurnaceInventory) player.openInventory(plugin.getServer().createInventory(player, InventoryType.FURNACE)).getTopInventory();
+			Inventory furnace = player.openInventory(plugin.getServer().createInventory(player, InventoryType.FURNACE, title)).getTopInventory();
+			// if above openInventory() is called from InventoryClickEvent, it calls registered InventoryCloseEvent from here
+			furnace.setItem(0, plugin.recipes.getIngredient(recipe));
+			furnace.setItem(2, product);
 			cycler.randomizeFuel(furnace);
 			return;
 		}
 		
-		Workbench workbench = new Workbench(plugin, player);
+		/* // BUG: items set in stonecutter inventory render invisible in client, use workaround above
+		if ( recipe instanceof StonecuttingRecipe ) // slot 0=crafting, 1=result
+		{
+			Inventory cutter = player.openInventory(plugin.getServer().createInventory(player, InventoryType.STONECUTTER, title)).getTopInventory();
+			// if above openInventory() is called from InventoryClickEvent, it calls registered InventoryCloseEvent from here
+			cutter.setItem(0, plugin.recipes.getIngredient(recipe));
+			cutter.setItem(1, product);
+			// BUG: items are there but invisible
+			return;
+		}
+		*/
+		
+		Workbench workbench = new Workbench(plugin, player, title);
 		workbench.setResult(product);
 		player.openInventory(workbench.getInventory()).getTopInventory();
 		// if above openInventory() is called from InventoryClickEvent, it calls registered InventoryCloseEvent from here 

@@ -2,20 +2,21 @@
 package cl.netgamer.recipedia;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
 import org.bukkit.Material;
-import org.bukkit.inventory.FurnaceRecipe;
+import org.bukkit.inventory.CookingRecipe;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.RecipeChoice;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.ShapelessRecipe;
+import org.bukkit.inventory.StonecuttingRecipe;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.RecipeChoice.MaterialChoice;
 
@@ -23,14 +24,18 @@ import org.bukkit.inventory.RecipeChoice.MaterialChoice;
 class RecipeBook
 {
 	private Main plugin;
-	private Map<String, Set<String>> inverseRecipes = new HashMap<String, Set<String>>();
-	private List<String> fuels = new ArrayList<String>();
+	private Map<String, Set<String>> inverseRecipes;
+	private List<String> fuels;
 	
+	@SuppressWarnings("rawtypes")
 	RecipeBook(Main plugin)
 	{
 		this.plugin = plugin;
+		inverseRecipes = new TreeMap<String, Set<String>>();
+		fuels = new ArrayList<String>();
 		
 		Iterator<Recipe> recipes = plugin.getServer().recipeIterator();
+		
 		while ( recipes.hasNext() )
 		{
 			Recipe recipe = recipes.next();
@@ -39,18 +44,25 @@ class RecipeBook
 			
 			String product = recipe.getResult().getType().toString();
 			
-			if ( recipe instanceof FurnaceRecipe )
-				registerInverseRecipe(((FurnaceRecipe) recipe).getInput().getType(), product);
+			if ( recipe instanceof CookingRecipe )
+				registerInverseRecipe(((CookingRecipe) recipe).getInput().getType(), product);
 			
 			else if ( recipe instanceof ShapelessRecipe )
 				for (ItemStack ingredient : ((ShapelessRecipe) recipe).getIngredientList())
 					registerInverseRecipe(ingredient.getType(), product);
 			
-			else
+			else if  ( recipe instanceof ShapedRecipe )
 				for (RecipeChoice choices : ((ShapedRecipe) recipe).getChoiceMap().values())
+				{
 					if ( choices != null )
 						for (Material choice : ((MaterialChoice) choices).getChoices())
 							registerInverseRecipe(choice, product);
+				}
+			
+			else if ( recipe instanceof StonecuttingRecipe )
+				registerInverseRecipe(((StonecuttingRecipe) recipe).getInput().getType(), product);
+			
+			// else: other recipes (complex, etc.)
 		}
 		
 		plugin.getLogger().info("Loaded inverse recipes for "+inverseRecipes.size()+" ingredients");
@@ -58,7 +70,7 @@ class RecipeBook
 		for (Material material : Material.values())
 			if ( material.isFuel() )
 				fuels.add(material.toString());
-		plugin.getLogger().info("Loaded "+fuels.size()+" fuels");
+		plugin.getLogger().info("Loaded "+fuels.size()+" fuel items");
 	}
 	
 	
@@ -72,22 +84,22 @@ class RecipeBook
 	}
 	
 	
-	/** return if items of given material can be used as ingredient to craft other items */
+	/** @return if items of given material can be used as ingredient to craft other items */
 	boolean isIngredient(Material material)
 	{
 		// skip air as an ingredient
-		return !Main.isEmptyItem(material) && inverseRecipes.containsKey(material.toString());
+		return !Main.isEmptyMaterial(material) && inverseRecipes.containsKey(material.toString());
 	}
 	
 	
-	/** return if given item can be used as ingredient to craft other items */
+	/** @return if given item can be used as ingredient to craft other items */
 	boolean isIngredient(ItemStack item)
 	{
 		return !Main.isEmptyItem(item) && isIngredient(item.getType());
 	}
 	
 	
-	/** return if there is some recipe for crafting an item of this material */
+	/** @return true if there is some recipe for crafting an item of this material */
 	boolean isProduct(Material material)
 	{
 		return material != null && isProduct(new ItemStack(material));
@@ -110,8 +122,8 @@ class RecipeBook
 	}
 	
 	
-	/** get a list of products that can be crafted from the given ingredient */
-	List<ItemStack> getProductsMadeWith(ItemStack ingredient)
+	/** get a list of products that can be crafted from the given ingredient (inverse recipes) */
+	List<ItemStack> getProductsCraftedWith(ItemStack ingredient)
 	{
 		List<ItemStack> products = new ArrayList<ItemStack>();
 		
@@ -136,7 +148,11 @@ class RecipeBook
 	/** get the ingredient of a furnace recipe */
 	ItemStack getIngredient(Recipe recipe)
 	{
-		return setLores(((FurnaceRecipe) recipe).getInput());
+		if ( recipe instanceof CookingRecipe )
+			return setLores(((CookingRecipe<?>) recipe).getInput());
+		if ( recipe instanceof StonecuttingRecipe )
+			return setLores(((StonecuttingRecipe) recipe).getInput());
+		return null;
 	}
 	
 	

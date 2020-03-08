@@ -1,7 +1,7 @@
 name: Recipedia
 main: cl.netgamer.recipedia.Main
-version: 1
-api-version: 1.13
+version: 2.1140
+api-version: 1.14
 url: https://dev.bukkit.org/projects/recipedia
 # just to make the plugin load at last 
 # not sure, read PluginDescriptionFile javadoc, watch bukkit code and do some tests

@@ -1,15 +1,20 @@
 
 package cl.netgamer.recipedia;
 
+import java.text.Normalizer;
+import java.text.Normalizer.Form;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.craftbukkit.libs.org.apache.commons.codec.digest.DigestUtils;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -21,10 +26,7 @@ import org.bukkit.event.inventory.InventoryType.SlotType;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.world.WorldSaveEvent;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.Recipe;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
-
 
 /*
 about storing player instances in collections...
@@ -44,36 +46,38 @@ https://bukkit.org/threads/storing-players-bad-practice.80469/
 public final class Main extends JavaPlugin implements Listener
 {
 	private FileConfiguration conf;
-	RecipeBook recipes;
-	private Dictionary dictionary;
 	private Map<Player, Session> sessions = new HashMap<Player, Session>();
+	private Dictionary dictionary;
+	RecipeBook recipes;
 	
 	public void onEnable()
 	{
 		saveDefaultConfig();
 		conf = getConfig();
-		
 		recipes = new RecipeBook(this);
 		dictionary = new Dictionary(this);
 		
 		getServer().getPluginManager().registerEvents(this, this);
+		getServer().broadcastMessage("\u00A7eRecipedia plugin reloaded");
 		getLogger().info("Plugin ready to work");
 	}
 
 	
 	public void onDisable()
 	{
-		// can't schedule close player inventory because next tick plugin will be disabled,
-		// not so neat to leave player inventory opened on reloads but at least it keeps integrity
-		for (Session session : sessions.values())
-			session.executeClose();
+		for (Entry<Player, Session> session : sessions.entrySet())
+		{
+			session.getValue().handleInventoryClosing(); // restore player inventory
+			sessions.remove(session.getKey()); // remove session before trigger InventoryCloseEvent to avoid extra handling
+			session.getKey().closeInventory(); // safely used in onDisable(), see InventoryClickEvent javadoc
+		}
 	}
 	
 	
 	@EventHandler
 	public void onWorldSave(WorldSaveEvent e)
 	{
-		// similar to onDisable(), this is for clean sessions eventually to prevent memory leaks
+		// sessions cleanup to prevent eventual memory leaks
 		for (Player player: sessions.keySet())
 			if ( !player.isOnline() )
 				sessions.remove(player);
@@ -84,7 +88,7 @@ public final class Main extends JavaPlugin implements Listener
 	public void onPlayerQuit(PlayerQuitEvent e)
 	{
 		Session session = sessions.get(e.getPlayer());
-		if ( session != null && session.executeClose() )
+		if ( session != null && session.handleInventoryClosing() )
 			sessions.remove(e.getPlayer());
 	}
 	
@@ -93,7 +97,7 @@ public final class Main extends JavaPlugin implements Listener
 	public void onInventoryClose(InventoryCloseEvent e)
 	{
 		Session session = sessions.get((Player) e.getPlayer());
-		if ( session != null && session.executeClose() )
+		if ( session != null && session.handleInventoryClosing() )
 			sessions.remove((Player) e.getPlayer());
 	}
 	
@@ -115,50 +119,51 @@ public final class Main extends JavaPlugin implements Listener
 		// click outside with...
 		if ( slot == SlotType.OUTSIDE )
 		{
-			// left click > replay session
+			// left click -> back to previous results/recipes
 			if ( e.getClick() == ClickType.LEFT )
-				session.replay();
+				session.back();
 			
-			// other click (right, double, etc.) > close session (on next tick for safety, see InventoryClickEvent javadoc)
-			else
-			{
-				new BukkitRunnable()
-				{
-					@Override
-					public void run()
-					{
-						player.closeInventory();
-					}
-				}.runTask(this);
-				return;
-			}
+			// right click -> close session
+			// i know this should be scheduled but wtf, these are not my items :)
+			// see InventoryClickEvent javadoc
+			else if ( e.getClick() == ClickType.RIGHT )
+				player.closeInventory();
+			
+			// other click type -> do nothing
+			return;
 		}
 		
-		// click an empty slot > do nothing
+		// click an empty slot -> do nothing
 		else if ( isEmptyItem(item) )
 			return;
 		
 		// click an item in...
 		
-		// hotbar > navigate page
+		// hotbar -> navigate page
 		else if ( slot == SlotType.QUICKBAR )
-			session.showResults(e.getSlot());
+			session.showResults(null, e.getSlot());
 		
-		// non-left click > list inverse recipes (entering in result mode)
+		// right click -> list inverse recipes (entering in result mode)
+		else if ( e.getClick() == ClickType.RIGHT && hasPermission(player, "ingredient", false) )
+			session.updateResults(recipes.getProductsCraftedWith(item));
+		
+		// not left click -> do nothing
 		else if ( e.getClick() != ClickType.LEFT )
-		{
-			if ( hasPermission(player, "ingredient", false) && session.updateResults(recipes.getProductsMadeWith(item)) );
-		}
+			return;
 		
 		// left click an item in...
 		
-		// container slot while in recipe mode > show recipe in grid
-		else if ( slot == SlotType.CONTAINER && session.inRecipeMode() )
-			session.showRecipe(e.getSlot(), item);
+		// bottom container inventory slot while in recipe mode -> show recipe in grid
+		else if ( slot == SlotType.CONTAINER && session.isShowingRecipes() )
+			session.showRecipe(e.getSlot() - 9, item, 0);
 		
-		// top inventory, or any slot while in result mode > list recipe products + show 1st recipe (entering in recipe mode)
-		else // checks pending?
+		// any other than result -> list recipe products + show 1st recipe (entering in recipe mode)
+		else if ( slot != SlotType.RESULT )
 			session.updateRecipes(item);
+		
+		// none of the above -> do nothing and skip inventory updating
+		else
+			return;
 		
 		player.updateInventory();
 	}
@@ -176,22 +181,49 @@ public final class Main extends JavaPlugin implements Listener
 	@Override
 	public boolean onCommand(CommandSender sender, Command command, String alias, String[] args)
 	{
-		// process /recipedia command
+		// special /recipedia subcommands
 		if ( command.getName().equalsIgnoreCase("recipedia") )
 		{
-			// with no args, display help page for everyone
-			if (args.length < 1)
-				return die(sender, "helpPage", dictionary.getLocales(), listPermissions(sender));
+			// display /recipedia help page for everyone
+			if ( args.length < 1 )
+				return die(sender, "helpPage", dictionary.getLocales(), listPermissions(sender));	
 			
-			if ( !(sender instanceof Player) )
+			// validate and process 'reload' subcommand
+			if ( sender.isOp() && args[0].equalsIgnoreCase("reload") )
+			{
+				// calculate current token and from 10 seconds ago, just use the first 4 chars
+				String token0 = "RP"+System.currentTimeMillis();
+				String token1 = "RP"+(System.currentTimeMillis() - 10000); // 10 secs ago
+				token0 = DigestUtils.sha1Hex(token0.substring(0, token0.length() - 4)).substring(0, 4);
+				token1 = DigestUtils.sha1Hex(token1.substring(0, token1.length() - 4)).substring(0, 4);
+				
+				// if this token fails then try the previous
+				if ( args.length > 1 && ( args[1].equalsIgnoreCase(token0) || args[1].equalsIgnoreCase(token1) ) )
+				{
+					onDisable();
+					onEnable();
+				}
+				else
+					sender.sendMessage("\u00A7eAre you sure?, to confirm please type '/recipedia reload "+token0+"'");
 				return true;
-			
-			Player player = (Player) sender;
-			if ( hasPermission(player, "search", true) && displayResults(player, dictionary.searchItemsByName(args)) );
-			return true;
+			}
 		}
 		
+		// exit on other command
+		if ( !command.getName().equalsIgnoreCase("recipedia") && !command.getName().equalsIgnoreCase("recipehand") && !command.getName().equalsIgnoreCase("recipetarget") )
+			return true;
+		
+		// filter online players
+		if ( !(sender instanceof Player) )
+		{
+			sender.sendMessage("\u00A7eThis command requires Minecraft 3D Client");
+			return true;
+		}
 		Player player = (Player) sender;
+		
+		// process /recipedia search command
+		if ( command.getName().equalsIgnoreCase("recipedia") && hasPermission(player, "search", true) )
+			return displayResults(player, dictionary.searchItemsByName(args));
 		
 		// process /recipehand command
 		if ( command.getName().equalsIgnoreCase("recipehand") && hasPermission(player, "hand", true) )
@@ -210,8 +242,8 @@ public final class Main extends JavaPlugin implements Listener
 		if ( recipes.isProduct(item) )
 		{
 			if ( hasPermission(player, "recipe", true) )
-				// read line 28 comments about storing player instances in collections
-				sessions.put(player, new Session(this, player, item));
+				// read line 32 comments about storing player instances in collections
+				sessions.put(player, new Session(this, player, Arrays.asList(item)));
 			return true;
 		}
 		
@@ -219,7 +251,7 @@ public final class Main extends JavaPlugin implements Listener
 		if ( recipes.isIngredient(item) )
 		{
 			if ( hasPermission(player, "ingredient", true) )
-				displayResults(player, recipes.getProductsMadeWith(item));
+				displayResults(player, recipes.getProductsCraftedWith(item));
 		}
 		
 		else
@@ -237,22 +269,9 @@ public final class Main extends JavaPlugin implements Listener
 		if ( results.size() == 1 )
 			return displayRecipes(player, results.get(0));
 		
-		// read line 28 comments about storing player instances in collections
+		// read line 32 comments about storing player instances in collections
 		sessions.put(player, new Session(this, player, results));
 		return true;
-	}
-	
-	///// REVISAR ESTA WEA v
-	
-	/** check before load recipes for given product */
-	List<Recipe> findRecipes(Player player, ItemStack product)
-	{
-		List<Recipe> lRecipes = recipes.getRecipesFor(product);
-		
-		// if no "normal" recipes found, try inverse ones before
-		if ( lRecipes.isEmpty() )
-			sessions.get(player).updateResults(recipes.getProductsMadeWith(product));
-		return lRecipes;
 	}
 	
 	
@@ -273,7 +292,7 @@ public final class Main extends JavaPlugin implements Listener
 	private String listPermissions(CommandSender sender)
 	{
 		if ( !(sender instanceof Player) )
-			return "Recipedia plugin requires Minecraft client";
+			return "Recipedia plugin requires Minecraft 3D Client";
 		
 		Player player = (Player) sender;
 		return
@@ -299,19 +318,30 @@ public final class Main extends JavaPlugin implements Listener
 				.replaceAll("[\r\n]+$", "")
 				.replaceAll("(?m):(.*?)$", ":\u00A7b$1\u00A7e");
 		else
-			return "\u00A7dMissing string in conf: \u00A7e"+key;
+			return "\u00A7dMissing conf: \u00A7e"+key;
 	}
 	
 	
-	static boolean isEmptyItem(Material material)
+	@SuppressWarnings("deprecation")
+	static boolean isEmptyMaterial(Material material)
 	{
-		return material == null || material == Material.AIR || material == Material.LEGACY_AIR;
+		// true if null or any "air", LEGACY_AIR for servers updated prior "the flattering"
+		return material == null || material == Material.AIR || material == Material.CAVE_AIR || material == Material.VOID_AIR || material == Material.LEGACY_AIR;
 	}
 	
 	
 	static boolean isEmptyItem(ItemStack item)
 	{
-		return item == null || isEmptyItem(item.getType());
+		return item == null || isEmptyMaterial(item.getType());
+	}
+	
+	
+	static String stripAccents(String text)
+	{
+		// https://www.drillio.com/en/2011/java-remove-accent-diacritic/
+		// https://memorynotfound.com/remove-accents-diacritics-from-string/
+	    return text == null ? null :
+	        Normalizer.normalize(text, Form.NFD).replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
 	}
 	
 }

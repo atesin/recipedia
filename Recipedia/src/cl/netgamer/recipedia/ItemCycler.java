@@ -2,7 +2,7 @@
 package cl.netgamer.recipedia;
 
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.FurnaceInventory;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -30,19 +30,19 @@ public class ItemCycler
 			public void run()
 			{
 				if (!player.isOnline() || player.getOpenInventory().getTopInventory() != workbench.getInventory() )
-				{
 					this.cancel();
-					return;
+				else
+				{
+					workbench.setMatrix(plugin.recipes.getIngredients((ShapedRecipe) recipe, cycle++));
+					player.updateInventory();
 				}
-				
-				workbench.setMatrix(plugin.recipes.getIngredients((ShapedRecipe) recipe, cycle++));
-				player.updateInventory();
 			}
 		}.runTaskTimer(plugin, 1, 40);
 	}
 	
 	
-	void randomizeFuel(FurnaceInventory furnace)
+	//void randomizeFuel(FurnaceInventory furnace)
+	void randomizeFuel(Inventory furnace)
 	{
 		new BukkitRunnable()
 		{
@@ -50,13 +50,13 @@ public class ItemCycler
 			public void run()
 			{
 				if (!player.isOnline() || player.getOpenInventory().getTopInventory() != furnace)
-				{
 					this.cancel();
-					return;
+				else
+				{
+					//furnace.setFuel(plugin.recipes.pickFuel(furnace.getFuel()));
+					furnace.setItem(1, plugin.recipes.pickFuel(furnace.getItem(1)));
+					player.updateInventory();
 				}
-				
-				furnace.setFuel(plugin.recipes.pickFuel(furnace.getFuel()));
-				player.updateInventory();
 			}
 		}.runTaskTimer(plugin, 1, 40);
 	}
